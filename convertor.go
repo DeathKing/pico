@@ -18,7 +18,7 @@ import (
 	"github.com/vbauerster/mpb/v7/decor"
 )
 
-type conversionProgress struct {
+type progress struct {
 	Fisrt     int32
 	Last      int32
 	Current   int32
@@ -26,27 +26,28 @@ type conversionProgress struct {
 	Converted int32
 }
 
-func (cp *conversionProgress) Incr(delta int32) {
-	atomic.AddInt32(&cp.Converted, delta)
+func (p *progress) Incr(delta int32) {
+	atomic.AddInt32(&p.Converted, delta)
 }
 
-func (cp *conversionProgress) Progress() (int32, int32) {
-	return cp.Converted, cp.TotalPage()
+func (p *progress) PushNew(delta int32) {
+	atomic.AddInt32(&p.Total, delta)
 }
 
-func (cp *conversionProgress) TotalPage() int32 {
-	return cp.Last - cp.Fisrt + 1
+func (p *progress) Progress() (int32, int32) {
+	return p.Converted, p.Total
 }
 
-func (cp *conversionProgress) setInit(first, last, current int32) {
-	cp.Fisrt = first
-	cp.Last = last
-	cp.Current = current
-	cp.Converted = 0
+// TODO just initialize using the struct
+func (p *progress) setInit(first, last, current int32) {
+	p.Fisrt = first
+	p.Last = last
+	p.Current = current
+	p.Converted = 0
 }
 
 type Conversion struct {
-	conversionProgress
+	progress
 
 	err error
 	wg  *sync.WaitGroup
@@ -57,16 +58,16 @@ type Conversion struct {
 	// SubTasks will be useful when you want to invistgate worker-specific progress
 	SubTasks []*ConversionSubTask
 
-	// EntryChan is the channel of conversion progress entry
+	// Entries is the channel of conversion progress entry
 	// the format will be ["currentPage" "lastPage" "filename" "workerID"]
-	EntryChan chan []string
+	Entries chan []string
 
 	// Done
 	Done chan interface{}
 }
 
 type ConversionSubTask struct {
-	conversionProgress
+	progress
 	cmd        *exec.Cmd
 	stderrPipe io.ReadCloser
 
@@ -91,9 +92,9 @@ func newConversion(params *Parameters, pageCount int32) *Conversion {
 	return &Conversion{
 		wg: &sync.WaitGroup{},
 
-		Params:    params,
-		EntryChan: make(chan []string, chansize),
-		Done:      make(chan interface{}),
+		Params:  params,
+		Entries: make(chan []string, chansize),
+		Done:    make(chan interface{}),
 	}
 }
 
@@ -150,7 +151,7 @@ func (c *Conversion) Start() error {
 
 	go func() {
 		c.wg.Wait()
-		close(c.EntryChan)
+		close(c.Entries)
 		close(c.Done)
 		c.Params.cancle()
 	}()
@@ -160,13 +161,13 @@ func (c *Conversion) Start() error {
 
 // Wait hijacks the EntryChan and wait for all the workers finish
 func (c *Conversion) Wait() {
-	for range c.EntryChan {
+	for range c.Entries {
 	}
 }
 
-func (c *Conversion) WaitAndError() error {
+func (c *Conversion) WaitAndErrors() []error {
 	c.Wait()
-	return c.Error()
+	return c.Errors()
 }
 
 func complete(bar *mpb.Bar, subtask *ConversionSubTask) {
@@ -193,7 +194,7 @@ func (c *Conversion) Bar() *Conversion {
 		status = decor.OnComplete(status, "\x1b[32mdone!\x1b[0m")
 		status = decor.OnAbort(status, "\x1b[31maborted\x1b[0m")
 
-		bar := p.AddBar(int64(subtask.TotalPage()),
+		bar := p.AddBar(int64(subtask.Total),
 			mpb.PrependDecorators(
 				decor.Name(worker, decor.WC{W: len(worker) + 1, C: decor.DidentRight}),
 				status,
@@ -218,7 +219,7 @@ func (c *Conversion) WaitWithBar() {
 // A empty array is returned if there is no entry received.
 func (c *Conversion) WaitAndCollect() (entries [][]string) {
 	entries = make([][]string, 0)
-	for entry := range c.EntryChan {
+	for entry := range c.Entries {
 		entries = append(entries, entry)
 	}
 	return entries
@@ -227,13 +228,14 @@ func (c *Conversion) WaitAndCollect() (entries [][]string) {
 func (c *Conversion) createWorker(nth int32, base []string) *ConversionSubTask {
 	call := c.Params
 
-	reminder := int32(0)
+	reminder := call.pageCount % call.workerCount
+	amortization := int32(0)
 	if nth < call.pageCount%call.workerCount {
-		reminder = 1
+		amortization = 1
 	}
 
 	firstPage := call.firstPage + nth*call.minPagePerWorker
-	lastPage := firstPage + call.minPagePerWorker - 1 + reminder
+	lastPage := firstPage + reminder + call.minPagePerWorker - 1 + amortization
 
 	if lastPage > call.lastPage {
 		lastPage = call.lastPage
@@ -260,6 +262,10 @@ func (c *Conversion) createWorker(nth int32, base []string) *ConversionSubTask {
 			call.pdfPath,
 			outputFile,
 		))
+
+	if call.verbose {
+		fmt.Printf("Worker#%02d: %s\n", nth, subtask.cmd.String())
+	}
 
 	return subtask
 }
@@ -293,7 +299,7 @@ func (cst *ConversionSubTask) useProgressController(
 				if !more {
 					return
 				}
-				cst.Task.EntryChan <- item
+				cst.Task.Entries <- item
 				cst.Task.Incr(1)
 			}
 		}
@@ -345,7 +351,7 @@ func (cst *ConversionSubTask) useSlientReader() (chan interface{}, func()) {
 		// considered it has converted `cst.Total()` pages, because we cannot
 		// know how many pages has been converted already without calling
 		// poppler with `-progress` option.
-		defer cst.Task.Incr(cst.TotalPage())
+		defer cst.Task.Incr(cst.Total)
 
 		call := cst.Task.Params
 		scanner := bufio.NewScanner(cst.stderrPipe)

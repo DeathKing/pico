@@ -37,6 +37,7 @@ type subtest struct {
 }
 
 func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
+	commonOptions := []CallOption{WithStrict(), WithVerbose()}
 	subtests := []subtest{
 		{
 			title:   "TestSingleWorkerConversion",
@@ -64,13 +65,18 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 		t.Run(sub.title, func(t *testing.T) {
 			for pdf, pageCount := range pdfs1 {
 				dir := t.TempDir()
-				task, err := Convert(fmt.Sprintf("%s%s", folder, pdf),
-					append(sub.options, WithOutputFolder(dir))...)
+
+				options := append(commonOptions, sub.options...)
+				options = append(options, WithOutputFolder(dir))
+
+				task, err := Convert(fmt.Sprintf("%s%s", folder, pdf), options...)
 				if err != nil {
 					t.Fatalf("%+v", err)
 				}
 
-				task.Wait()
+				for _, items := range task.WaitAndCollect() {
+					t.Logf("%v", items)
+				}
 				if len(task.Errors()) > 0 {
 					t.Fatalf("%+v", task.Errors())
 				}

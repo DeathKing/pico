@@ -45,10 +45,10 @@ type Parameters struct {
 	outputFolder    string
 	progress        bool
 	singleFile      bool
+	verbose         bool
 	strict          bool
 	transparent     bool
 	grayscale       bool
-	pathsOnly       bool
 	useCropBox      bool
 	usePdftocario   bool
 	hideAnnotations bool
@@ -248,6 +248,14 @@ func WithSingleFile() CallOption {
 	}
 }
 
+// WithVerbose will prints useful debugging information
+func WithVerbose() CallOption {
+	return func(p *Parameters, command []string) []string {
+		p.verbose = true
+		return command
+	}
+}
+
 // WithStrict sets to strict mode, when a Syntax Error is thrown, it will be raised as an Exception
 func WithStrict() CallOption {
 	return func(p *Parameters, command []string) []string {
@@ -267,13 +275,6 @@ func WithGrayScale() CallOption {
 	return func(p *Parameters, command []string) []string {
 		p.grayscale = true
 		return append(command, "-grayscale")
-	}
-}
-
-func WithPathsOnly() CallOption {
-	return func(p *Parameters, command []string) []string {
-		p.pathsOnly = true
-		return command
 	}
 }
 
@@ -322,7 +323,15 @@ func defaultConvertCallOption() *Parameters {
 	}
 }
 
-// Convert PDF to images
+func defaultConvertFilesCallOption() *Parameters {
+	p := defaultConvertCallOption()
+	p.workerCount = 4
+
+	return p
+}
+
+// Convert converts single PDF to images. This function is solely a options parser
+// and command builder
 func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 	command := []string{}
 	call := defaultConvertCallOption()
@@ -438,4 +447,11 @@ func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 	}
 
 	return task, nil
+}
+
+// ConvertFiles converts multiple PDF files to images
+//
+// files could be type `[]string`, `chan string`
+func ConvertFiles(files interface{}, options ...CallOption) (*Conversion, error) {
+	return nil, nil
 }
