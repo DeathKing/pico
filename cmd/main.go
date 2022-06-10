@@ -56,7 +56,7 @@ func main() {
 
 }
 
-func convert(file string) (*pdf2image.Conversion, error) {
+func convert(file string) (*pdf2image.Task, error) {
 	return pdf2image.Convert(
 		file,
 		pdf2image.WithWorkerCount(numWorkers),

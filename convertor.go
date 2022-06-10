@@ -30,7 +30,7 @@ func (p *progress) Incr(delta int32) {
 	atomic.AddInt32(&p.Converted, delta)
 }
 
-func (p *progress) PushNew(delta int32) {
+func (p *progress) PushTotal(delta int32) {
 	atomic.AddInt32(&p.Total, delta)
 }
 
@@ -46,7 +46,7 @@ func (p *progress) setInit(first, last, current int32) {
 	p.Converted = 0
 }
 
-type Conversion struct {
+type Task struct {
 	progress
 
 	err error
@@ -54,6 +54,8 @@ type Conversion struct {
 
 	// Params is the final computed arguments used to invoke the conversion call
 	Params *Parameters
+
+	Convertors []*konvertor
 
 	// SubTasks will be useful when you want to invistgate worker-specific progress
 	SubTasks []*ConversionSubTask
@@ -66,30 +68,164 @@ type Conversion struct {
 	Done chan interface{}
 }
 
+// buildConvertor creates one time convertor for single PDF file convertion. It
+// first computes page ranges each convertor should take care of, then computes
+// output folder and filename, then create a subprocess used to actually perfrom
+// that conversion.
+func (t *Task) buildConvertor(nth int32, base []string) {
+	t.wg.Add(1)
+	p := t.Params
+
+	// 1. page calculation
+	minPagePerConvertor := p.pageCount / p.workerCount
+	reminder := p.pageCount % p.workerCount
+
+	amortization := int32(0)
+	if nth < reminder {
+		amortization = 1
+	}
+
+	firstPage := p.firstPage + nth*minPagePerConvertor
+	lastPage := firstPage + reminder + minPagePerConvertor - 1 + amortization
+
+	if lastPage > p.lastPage {
+		panic("Wrong calculation, worker lastPage should not greater than task lastPage")
+	}
+
+	// 2. Filename and outputfolder calculation
+	outputFile := p.outputFile
+	if p.outputFileFn != nil {
+		outputFile = p.outputFileFn(p.pdfPath, nth, firstPage, lastPage)
+	}
+
+	outputFolder := p.outputFolder
+	if p.outputFolderFn != nil {
+		outputFolder = p.outputFolderFn(p.pdfPath, nth, firstPage, lastPage)
+	}
+
+	outputFile = filepath.Join(outputFolder, outputFile)
+
+	command := []string{
+		getCommandPath(p.binary, p.popplerPath),
+		"-f", strconv.Itoa(int(firstPage)),
+		"-l", strconv.Itoa(int(lastPage)),
+	}
+	command = append(command, base...)
+	command = append(command, p.pdfPath, outputFile)
+
+	// create subprocess
+
+	worker := &konvertor{}
+
+	t.Convertors = append(t.Convertors, worker)
+}
+
+func (t *Task) buildConvertWorker(nth int32, base []string) {
+
+}
+
+type konvertor struct {
+	progress
+	cmd  *exec.Cmd
+	errs []error
+
+	fisrt int32
+	last  int32
+
+	Params *Parameters
+	ID     int32
+}
+
+type reusableKonvertor struct {
+	konvertor
+
+	FileProvider
+}
+
+func createCovertor(nth int, p *Parameters, command []string) {
+
+}
+
+func (rk *reusableKonvertor) Start() {
+	source := rk.Source()
+	// FIXME: preventing multiple start
+
+	for {
+		// if we doesn't have a file, we need to get one
+		if rk.cmd == nil {
+			// accquire one
+			select {
+			case <-rk.Params.ctx.Done():
+				// global timeout
+				return
+			case file, more := <-source:
+				if !more {
+					return
+				}
+				// cmd := f(file)
+			}
+		}
+
+		select {
+		// this is global control
+		case <-rk.Params.ctx.Done():
+			return
+		case <-time.After(rk.Params.perPageTimeout):
+			return
+		case entry, more := <-rk.Entries:
+			// release rk.cmd
+			if !more {
+				rk.cmd = nil
+			} else {
+				// propergate to parent
+			}
+			// processing file
+
+		}
+	}
+}
+
+type SingleConvertor struct {
+	Task
+}
+
+type BatchConvertor struct {
+	Task
+}
+
 type ConversionSubTask struct {
 	progress
 	cmd        *exec.Cmd
 	stderrPipe io.ReadCloser
 
-	ID    int32
-	Task  *Conversion
-	Error error
+	ID     int32
+	Parent *Task
+	Error  error
 }
 
-func newConversionSubTask(id int32, task *Conversion) *ConversionSubTask {
+type worker struct {
+	progress
+	cmd *exec.Cmd
+
+	ID     int32
+	Parent *Task
+	Error  error
+}
+
+func newConversionSubTask(id int32, task *Task) *ConversionSubTask {
 	return &ConversionSubTask{
-		ID:   id,
-		Task: task,
+		ID:     id,
+		Parent: task,
 	}
 }
 
-func newConversion(params *Parameters, pageCount int32) *Conversion {
+func newConversion(params *Parameters, pageCount int32) *Task {
 	chansize := int32(0)
 	if params.progress {
 		chansize = pageCount
 	}
 
-	return &Conversion{
+	return &Task{
 		wg: &sync.WaitGroup{},
 
 		Params:  params,
@@ -98,7 +234,7 @@ func newConversion(params *Parameters, pageCount int32) *Conversion {
 	}
 }
 
-func (c *Conversion) Errors() []error {
+func (c *Task) Errors() []error {
 	errs := []error{}
 
 	if c.err != nil {
@@ -113,7 +249,7 @@ func (c *Conversion) Errors() []error {
 	return errs
 }
 
-func (c *Conversion) Error() error {
+func (c *Task) Error() error {
 	if errs := c.Errors(); len(errs) > 0 {
 		return errs[0]
 	}
@@ -122,7 +258,7 @@ func (c *Conversion) Error() error {
 }
 
 // Start initiates the conversion process
-func (c *Conversion) Start() error {
+func (c *Task) Start() error {
 	// FIXME: if any error occured during subtask initialization,
 	// previous subtasks should be rewind.
 	for _, cst := range c.SubTasks {
@@ -153,19 +289,19 @@ func (c *Conversion) Start() error {
 		c.wg.Wait()
 		close(c.Entries)
 		close(c.Done)
-		c.Params.cancle()
+		c.Params.cancel()
 	}()
 
 	return nil
 }
 
 // Wait hijacks the EntryChan and wait for all the workers finish
-func (c *Conversion) Wait() {
+func (c *Task) Wait() {
 	for range c.Entries {
 	}
 }
 
-func (c *Conversion) WaitAndErrors() []error {
+func (c *Task) WaitAndErrors() []error {
 	c.Wait()
 	return c.Errors()
 }
@@ -183,7 +319,7 @@ func complete(bar *mpb.Bar, subtask *ConversionSubTask) {
 	}
 }
 
-func (c *Conversion) Bar() *Conversion {
+func (c *Task) Bar() *Task {
 	p := mpb.New()
 
 	for id := range c.SubTasks {
@@ -211,13 +347,13 @@ func (c *Conversion) Bar() *Conversion {
 	return c
 }
 
-func (c *Conversion) WaitWithBar() {
+func (c *Task) WaitWithBar() {
 	c.Bar().Wait()
 }
 
 // WaitAndCollect acts like Wait() but collects all the entries into a slice.
 // A empty array is returned if there is no entry received.
-func (c *Conversion) WaitAndCollect() (entries [][]string) {
+func (c *Task) WaitAndCollect() (entries [][]string) {
 	entries = make([][]string, 0)
 	for entry := range c.Entries {
 		entries = append(entries, entry)
@@ -225,7 +361,17 @@ func (c *Conversion) WaitAndCollect() (entries [][]string) {
 	return entries
 }
 
-func (c *Conversion) createWorker(nth int32, base []string) *ConversionSubTask {
+func (c *Task) onEntry(entry []string) {
+	if c.Params.progress {
+		c.Entries <- entry
+	}
+}
+
+func (c *Task) onWokerComplete() {
+
+}
+
+func (c *Task) createWorker(nth int32, base []string) *ConversionSubTask {
 	call := c.Params
 
 	reminder := call.pageCount % call.workerCount
@@ -274,10 +420,10 @@ func (cst *ConversionSubTask) useProgressController(
 	itemChan chan []string,
 ) func() {
 	return func() {
-		defer cst.Task.wg.Done()
+		defer cst.Parent.wg.Done()
 		defer cst.cmd.Wait()
 
-		call := cst.Task.Params
+		call := cst.Parent.Params
 		hint := fmt.Sprintf("worker#%d progressController:", cst.ID)
 
 		for {
@@ -299,8 +445,8 @@ func (cst *ConversionSubTask) useProgressController(
 				if !more {
 					return
 				}
-				cst.Task.Entries <- item
-				cst.Task.Incr(1)
+				cst.Parent.Entries <- item
+				cst.Parent.Incr(1)
 			}
 		}
 	}
@@ -308,7 +454,7 @@ func (cst *ConversionSubTask) useProgressController(
 
 func (cst *ConversionSubTask) useProgressReader() (chan []string, func()) {
 	id := strconv.Itoa(int(cst.ID))
-	call := cst.Task.Params
+	call := cst.Parent.Params
 	itemChan := make(chan []string, call.minPagePerWorker+1)
 
 	return itemChan, func() {
@@ -323,7 +469,7 @@ func (cst *ConversionSubTask) useProgressReader() (chan []string, func()) {
 			if call.strict {
 				if strings.Contains(line, "Syntax Error") {
 					cst.Error = errors.Wrapf(
-						NewPDFSyntaxError(line, call.pdfPath, cst.Current),
+						NewOldPDFSyntaxError(line, call.pdfPath, cst.Current),
 						"worker#%d progressReader:", cst.ID)
 					return
 				}
@@ -341,6 +487,100 @@ func (cst *ConversionSubTask) useProgressReader() (chan []string, func()) {
 	}
 }
 
+func (cst *ConversionSubTask) setError(err error) {
+	if cst.Error == nil {
+		cst.Error = err
+	}
+}
+
+type reader struct {
+	onError    func(err error) bool
+	onEntry    func(entries []string)
+	onComplete func()
+}
+
+type SilentReader struct {
+	reader
+}
+
+type ProgressReader struct {
+	reader
+}
+
+func (pr *ProgressReader) ReadLoop(source io.ReadCloser) {
+	defer source.Close() // FIXME: should we close it?
+	defer pr.onComplete()
+
+	scanner := bufio.NewScanner(source)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.Contains(line, "Syntax Error") {
+			err := errors.WithStack(NewPDFSyntaxError(line))
+			if kontinue := pr.onError(err); !kontinue {
+				return
+			}
+		}
+
+		if entry := strings.Split(line, " "); len(entry) == 3 {
+			pr.onEntry(entry)
+		}
+	}
+}
+
+type ProgressController struct {
+	cst     *ConversionSubTask
+	entries chan []string
+}
+
+func (pc *ProgressController) onEntry(entry []string) {
+	if current, err := strconv.Atoi(entry[0]); err == nil {
+		pc.entries <- entry
+		pc.cst.Current = int32(current)
+		pc.cst.Incr(1)
+	}
+}
+
+func (pc *ProgressController) onError(err error) bool {
+	if !pc.cst.Parent.Params.strict {
+		return true
+	}
+	pc.cst.Error = errors.Wrap(err, "progressController:")
+	return false
+}
+
+func (pc *ProgressController) onComplete() {
+	close(pc.entries)
+}
+
+func (pc *ProgressController) ControlLoop() {
+	defer pc.cst.Parent.wg.Done()
+	defer pc.cst.cmd.Wait()
+
+	call := pc.cst.Parent.Params
+	hint := fmt.Sprintf("worker#%d progressController:", pc.cst.ID)
+
+	for {
+		select {
+		case <-call.ctx.Done():
+			pc.cst.setError(errors.Wrap(call.ctx.Err(), hint))
+			return
+		case <-time.After(call.perPageTimeout):
+			pc.cst.setError(errors.Wrap(
+				NewPerPageTimeoutError(pc.cst.Current),
+				hint,
+			))
+			return
+		case item, more := <-pc.entries:
+			if !more {
+				return
+			}
+			pc.cst.Parent.Entries <- item
+			pc.cst.Parent.Incr(1)
+		}
+	}
+}
+
 func (cst *ConversionSubTask) useSlientReader() (chan interface{}, func()) {
 	done := make(chan interface{})
 
@@ -351,9 +591,9 @@ func (cst *ConversionSubTask) useSlientReader() (chan interface{}, func()) {
 		// considered it has converted `cst.Total()` pages, because we cannot
 		// know how many pages has been converted already without calling
 		// poppler with `-progress` option.
-		defer cst.Task.Incr(cst.Total)
+		defer cst.Parent.Incr(cst.Total)
 
-		call := cst.Task.Params
+		call := cst.Parent.Params
 		scanner := bufio.NewScanner(cst.stderrPipe)
 
 		for scanner.Scan() {
@@ -363,7 +603,7 @@ func (cst *ConversionSubTask) useSlientReader() (chan interface{}, func()) {
 			if call.strict {
 				if strings.Contains(line, "Syntax Error") {
 					cst.Error = errors.Wrapf(
-						NewPDFSyntaxError(line, call.pdfPath, -1),
+						NewOldPDFSyntaxError(line, call.pdfPath, -1),
 						"worker#%d silentReader:", cst.ID)
 					return
 				}
@@ -374,10 +614,10 @@ func (cst *ConversionSubTask) useSlientReader() (chan interface{}, func()) {
 
 func (cst *ConversionSubTask) useSilentController(done chan interface{}) func() {
 	return func() {
-		defer cst.Task.wg.Done()
+		defer cst.Parent.wg.Done()
 		defer cst.cmd.Wait()
 
-		call := cst.Task.Params
+		call := cst.Parent.Params
 		hint := fmt.Sprintf("worker#%d silentController:", cst.ID)
 
 		for {

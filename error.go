@@ -50,10 +50,16 @@ func (e *GetBinaryVersionError) Error() string {
 	return e.msg
 }
 
-func NewPDFSyntaxError(line, filename string, page int32) *PDFSyntaxError {
+func NewOldPDFSyntaxError(line, filename string, page int32) *PDFSyntaxError {
 	return &PDFSyntaxError{
 		msg: fmt.Sprintf("syntax error was thrown during rendering %s at page %d: %s",
 			filename, page, line),
+	}
+}
+
+func NewPDFSyntaxError(line string) *PDFSyntaxError {
+	return &PDFSyntaxError{
+		msg: fmt.Sprintf("got error from poppler: %s", line),
 	}
 }
 

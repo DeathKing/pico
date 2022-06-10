@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,10 +53,11 @@ func GetInfo(pdfPath string, options ...CallOption) (map[string]string, error) {
 	}
 
 	cmd := buildCmd(ctx, call.popplerPath, command)
+	if call.verbose {
+		fmt.Println("Call using ", cmd.String())
+	}
+
 	buf, err := cmd.CombinedOutput()
-
-	// fmt.Println(cmd.String())
-
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -72,4 +75,18 @@ func GetInfo(pdfPath string, options ...CallOption) (map[string]string, error) {
 		}
 	}
 	return infos, nil
+}
+
+func GetPagesCount(pdfPath string, options ...CallOption) (int, error) {
+	infos, err := GetInfo(pdfPath, options...)
+	if err != nil {
+		return 0, err
+	}
+
+	pages, ok := infos["Pages"]
+	if !ok {
+		return 0, errors.New("missing 'Pages' entry")
+	}
+
+	return strconv.Atoi(pages)
 }

@@ -33,7 +33,7 @@ func mustContainsNFilesInDir(t *testing.T, kase, dir string, expect int) {
 type subtest struct {
 	title   string
 	options []CallOption
-	check   func(t *testing.T, task *Conversion)
+	check   func(t *testing.T, task *Task)
 }
 
 func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
@@ -42,14 +42,14 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 		{
 			title:   "TestSingleWorkerConversion",
 			options: []CallOption{},
-			check:   func(t *testing.T, task *Conversion) {},
+			check:   func(t *testing.T, task *Task) {},
 		},
 		{
 			title: "TestMultipleWorkerConversion",
 			options: []CallOption{
 				WithWorkerCount(4),
 			},
-			check: func(t *testing.T, task *Conversion) {},
+			check: func(t *testing.T, task *Task) {},
 		},
 		{
 			title: "TestMultipleWorkerConversionWithProgress",
@@ -57,7 +57,7 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 				WithWorkerCount(4),
 				WithProgress(),
 			},
-			check: func(t *testing.T, task *Conversion) {},
+			check: func(t *testing.T, task *Task) {},
 		},
 	}
 
@@ -74,10 +74,7 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 					t.Fatalf("%+v", err)
 				}
 
-				for _, items := range task.WaitAndCollect() {
-					t.Logf("%v", items)
-				}
-				if len(task.Errors()) > 0 {
+				if task.Wait(); len(task.Errors()) > 0 {
 					t.Fatalf("%+v", task.Errors())
 				}
 
@@ -201,7 +198,7 @@ func TestConversionCancellation(t *testing.T) {
 type strictModeTestCase struct {
 	title   string
 	options []CallOption
-	check   func(t *testing.T, task *Conversion)
+	check   func(t *testing.T, task *Task)
 }
 
 func TestStrictMode(t *testing.T) {
@@ -209,14 +206,14 @@ func TestStrictMode(t *testing.T) {
 		{
 			title:   "TestStrictMode",
 			options: []CallOption{WithStrict()},
-			check: func(t *testing.T, task *Conversion) {
+			check: func(t *testing.T, task *Task) {
 				var errPDFSyntaxError *PDFSyntaxError
 				assert.ErrorAs(t, task.Error(), &errPDFSyntaxError)
 			},
 		},
 		{
 			title: "TestStrictModeOff",
-			check: func(t *testing.T, task *Conversion) {
+			check: func(t *testing.T, task *Task) {
 				assert.NoError(t, task.Error())
 			},
 		},

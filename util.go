@@ -61,7 +61,7 @@ func buildCmd(ctx context.Context, popplerPath string, command []string) *exec.C
 	return cmd
 }
 
-func parseFormat(format string, grayscale bool) (string, string, func(), bool) {
+func parseFormat(format string, grayscale bool) (string, string, bool) {
 	format = strings.ToLower(format)
 
 	if format[0] == '.' {
@@ -70,18 +70,18 @@ func parseFormat(format string, grayscale bool) (string, string, func(), bool) {
 
 	switch {
 	case format == "jpeg" || format == "jpg":
-		return "jpeg", "jpg", func() {}, false
+		return "jpeg", "jpg", false
 
 	case format == "png":
-		return "png", "png", func() {}, false
+		return "png", "png", false
 
 	case format == "tiff" || format == "tif":
-		return "tiff", "tif", nil, true
+		return "tiff", "tif", true
 
 	case format == "ppm" && grayscale:
-		return "ppm", "pgm", nil, false
+		return "ppm", "pgm", false
 
 	default:
-		return "ppm", "ppm", nil, false
+		return "ppm", "ppm", false
 	}
 }

@@ -23,6 +23,8 @@ var transparentFileType = map[string]bool{
 	"tiff": true,
 }
 
+var dummyFn = func() {}
+
 type CallOption func(o *Parameters, command []string) []string
 
 type Parameters struct {
@@ -43,6 +45,8 @@ type Parameters struct {
 	jpegOpt         map[string]string
 	outputFile      string
 	outputFolder    string
+	outputFileFn    func(string, int32, int32, int32) string
+	outputFolderFn  func(string, int32, int32, int32) string
 	progress        bool
 	singleFile      bool
 	verbose         bool
@@ -59,7 +63,7 @@ type Parameters struct {
 	minPagePerWorker int32
 
 	ctx     context.Context
-	cancle  context.CancelFunc
+	cancel  context.CancelFunc
 	clearFn func()
 
 	// this field is only used by GetPDFInfo() call
@@ -94,6 +98,11 @@ func WithOwnerPw(ownerPw string) CallOption {
 func WithTimeout(timeout time.Duration) CallOption {
 	return func(p *Parameters, command []string) []string {
 		p.timeout = timeout
+		// remember current cancelFunc, which we may chian it later
+		kancel := p.cancel
+		ctx, cancle := context.WithTimeout(p.ctx, timeout)
+		p.ctx, p.cancel = ctx, func() { cancle(); kancel() }
+
 		return command
 	}
 }
@@ -301,7 +310,9 @@ func WithHideAnnotations() CallOption {
 
 func WithContext(ctx context.Context) CallOption {
 	return func(p *Parameters, command []string) []string {
-		p.ctx = ctx
+		p.cancel() // avoid context leaking
+		p.ctx, p.cancel = ctx, dummyFn
+
 		return command
 	}
 }
@@ -317,7 +328,7 @@ func defaultConvertCallOption() *Parameters {
 		perPageTimeout: 10 * time.Second,
 
 		ctx:    nil,
-		cancle: func() {},
+		cancel: func() {},
 
 		binary: "pdftoppm",
 	}
@@ -330,9 +341,152 @@ func defaultConvertFilesCallOption() *Parameters {
 	return p
 }
 
+func (p *Parameters) applyAndBuildCommand(command []string, options ...CallOption) ([]string, error) {
+	for _, option := range options {
+		command = option(p, command)
+	}
+
+	if p.usePdftocario && p.fmt == "ppm" {
+		p.fmt = "png"
+	}
+
+	parsedFormat, _, usePdfcairoFormat := parseFormat(p.fmt, p.grayscale)
+
+	switch parsedFormat {
+	case "jpeg":
+		command = append(command, "-jpeg")
+	case "png":
+		command = append(command, "-png")
+	case "tiff":
+		command = append(command, "-tiff")
+	}
+
+	usePdfCairo := p.usePdftocario || usePdfcairoFormat ||
+		(p.transparent && transparentFileType[parsedFormat])
+
+	if usePdfCairo {
+		p.binary = "pdftocairo"
+	}
+
+	// this considered as a Fatal if we cannot get the version of poppler utilities
+	version, err := getPopplerVersion(p.ctx, p.binary, p.popplerPath)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	major, minor := version[0], version[1]
+
+	if major == 0 {
+		if minor <= 57 {
+			p.jpegOpt = nil
+		}
+		if minor <= 83 {
+			p.hideAnnotations = false
+		}
+	}
+
+	if usePdfCairo && p.hideAnnotations {
+		return nil, errors.WithStack(
+			newWrongArgumentError("hideAnnotations is not supported with pdftocairo"))
+	}
+
+	return command, nil
+}
+
 // Convert converts single PDF to images. This function is solely a options parser
 // and command builder
-func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
+func Convert(pdfPath string, options ...CallOption) (*Task, error) {
+	call := defaultConvertCallOption()
+	call.pdfPath = pdfPath
+
+	command, err := call.applyAndBuildCommand([]string{}, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. page calculation
+	pages, err := GetPagesCount(pdfPath, options...)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	totalPage := int32(pages)
+
+	if call.lastPage < 0 || call.lastPage > totalPage {
+		call.lastPage = totalPage
+	}
+
+	if call.firstPage > call.lastPage {
+		err := newWrongArgumentError(
+			fmt.Sprintf("invalid page range from %d to %d",
+				call.firstPage, call.lastPage))
+		return nil, errors.WithStack(err)
+	}
+
+	// 2. worker number calculation
+	call.pageCount = call.lastPage - call.firstPage + 1
+
+	// workerCount is not set, we could infer for one
+	if call.workerCount <= 0 {
+		switch {
+		case call.pageCount > 50:
+			call.workerCount = 3
+		case call.pageCount > 20:
+			call.workerCount = 2
+		default:
+			call.workerCount = 1
+		}
+	}
+
+	if call.workerCount > call.pageCount {
+		call.workerCount = call.pageCount
+	}
+
+	t := &Task{}
+
+	// 3. convertor creation
+	for i := int32(0); i < call.workerCount; i++ {
+		t.buildConvertor(i, command)
+	}
+
+	// 4. start conversion
+
+	// page calculation
+	// path and folder calculation, could do later
+	if call.outputFile == "" {
+		base := filepath.Base(pdfPath)
+		call.outputFile = base[:len(base)-len(filepath.Ext(base))]
+	}
+
+	if call.outputFolder == "" {
+		call.outputFolder = filepath.Dir(pdfPath)
+	}
+
+	call.minPagePerWorker = call.pageCount / call.workerCount
+
+	task := newConversion(call, call.pageCount)
+
+	if call.progress {
+		task.setInit(call.firstPage, call.lastPage, call.firstPage)
+	}
+
+	for i := int32(0); i < call.workerCount; i++ {
+		task.SubTasks = append(
+			task.SubTasks,
+			task.createWorker(i, command),
+		)
+	}
+
+	if err := task.Start(); err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	return task, nil
+}
+
+// Convert converts single PDF to images. This function is solely a options parser
+// and command builder
+func ConvertBackup(pdfPath string, options ...CallOption) (*Task, error) {
 	command := []string{}
 	call := defaultConvertCallOption()
 	call.pdfPath = pdfPath
@@ -343,8 +497,8 @@ func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 
 	// if no context is specified, we create a new one
 	if call.ctx == nil {
-		call.ctx, call.cancle = context.WithTimeout(context.Background(), call.timeout)
-		call.clearFn = func() { call.cancle() }
+		call.ctx, call.cancel = context.WithTimeout(context.Background(), call.timeout)
+		call.clearFn = func() { call.cancel() }
 	}
 
 	if call.outputFile == "" {
@@ -360,13 +514,11 @@ func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 		call.fmt = "png"
 	}
 
-	info, err := GetInfo(pdfPath, options...)
-
+	pages, err := GetPagesCount(pdfPath, options...)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	pages, _ := strconv.Atoi(info["Pages"])
 	totalPage := int32(pages)
 
 	// We start by getting the output format, the buffer processing function and if we need pdftocairo
@@ -389,11 +541,9 @@ func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 		call.binary = "pdftocairo"
 	}
 
-	version, err := getPopplerVersion(call.ctx, call.binary,
-		call.popplerPath)
-
+	version, err := getPopplerVersion(call.ctx, call.binary, call.popplerPath)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 
 	major, minor := version[0], version[1]
@@ -408,7 +558,8 @@ func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 	}
 
 	if usePdfCairo && call.hideAnnotations {
-		return nil, fmt.Errorf("hideAnnotations is not supported with pdftocairo")
+		return nil, errors.WithStack(
+			newWrongArgumentError("hideAnnotations is not supported with pdftocairo"))
 	}
 
 	if call.lastPage < 0 || call.lastPage > totalPage {
@@ -452,6 +603,6 @@ func Convert(pdfPath string, options ...CallOption) (*Conversion, error) {
 // ConvertFiles converts multiple PDF files to images
 //
 // files could be type `[]string`, `chan string`
-func ConvertFiles(files interface{}, options ...CallOption) (*Conversion, error) {
+func ConvertFiles(files interface{}, options ...CallOption) (*Task, error) {
 	return nil, nil
 }
