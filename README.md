@@ -1,4 +1,5 @@
 # Go-pdf2image - convert PDF to images with progress
+# pico - convert PDF to images with progress
 
 A Go implementation for [@Belval](https://github.com/Belval)'s Python [pdf2image](https://github.com/Belval/pdf2image) but with progress support.
 
@@ -40,8 +41,8 @@ func main() {
 
     for entry := range task.EntryChan {
         fmt.Printf("[%d/%d] worker#%d converted page %s as file %s \n",
-            task.Finished,
-            task.Total(),
+            task.Converted,
+            task.Total,
             entry[3], // worker id
             entry[0], // current page
             entry[2], // output filename
@@ -62,6 +63,10 @@ func main() {
     for _, item := task.WaitAndCollect() {
         fmt.Printf("[worker#%d] file: %s %s/%s", entry[3], entry[2], entry[0], entry[1])
     }
+
+    // Case 4. Convert files from folder
+    task, _ = p2i.ConvertFiles()
+    task.Wait()
 
 }
 

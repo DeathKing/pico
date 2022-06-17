@@ -2,6 +2,8 @@ package gopdf2image
 
 import (
 	"fmt"
+
+	"github.com/pkg/errors"
 )
 
 type GetBinaryVersionError struct {
@@ -20,9 +22,35 @@ type WrongArgumentError struct {
 	msg string
 }
 
-func NewPerPageTimeoutError(page int32) *PerPageTimeoutError {
+type ConversionError struct {
+	pdf      string
+	page     int32
+	workerId int32
+	err      error
+}
+
+func (e *ConversionError) Cause() error {
+	return e.err
+}
+
+func (e *ConversionError) Error() string {
+	worker, page := "", ""
+	if e.workerId >= 0 {
+		worker = fmt.Sprintf(" by worker#%02d", e.workerId)
+	}
+
+	if e.page >= 0 {
+		page = fmt.Sprintf(" at page %d", e.page)
+	}
+
+	return fmt.Sprintf("failed to convert %s%s%s: %s", e.pdf, worker, page, e.err)
+}
+
+var ErrProviderClosed = errors.New("provider is closed")
+
+func NewPerPageTimeoutError(page string) *PerPageTimeoutError {
 	return &PerPageTimeoutError{
-		msg: fmt.Sprintf("processing page %d timeout", page),
+		msg: fmt.Sprintf("processing page %s timeout", page),
 	}
 }
 
@@ -34,6 +62,12 @@ func newWrongArgumentError(detail string) *WrongArgumentError {
 	return &WrongArgumentError{
 		msg: fmt.Sprintf("wrong argument: %s", detail),
 	}
+}
+
+// Wrong page range given: the first page (21) can not be after the last page (14).
+
+func newWrongPageRangeError(first, last int32) *WrongArgumentError {
+	return newWrongArgumentError(fmt.Sprintf("the first page (%d) can not be after the last page (%d)", first, last))
 }
 
 func (e *WrongArgumentError) Error() string {
@@ -59,7 +93,7 @@ func NewOldPDFSyntaxError(line, filename string, page int32) *PDFSyntaxError {
 
 func NewPDFSyntaxError(line string) *PDFSyntaxError {
 	return &PDFSyntaxError{
-		msg: fmt.Sprintf("got error from poppler: %s", line),
+		msg: fmt.Sprintf("poppler: %s", line),
 	}
 }
 

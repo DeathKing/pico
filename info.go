@@ -14,46 +14,49 @@ import (
 )
 
 func defaultGetInfoCallArguments() *Parameters {
-	return &Parameters{timeout: 10 * time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Parameters{
+		ctx:     ctx,
+		cancel:  cancel,
+		timeout: 10 * time.Second,
+	}
 }
 
-func GetInfo(pdfPath string, options ...CallOption) (map[string]string, error) {
-	call := defaultGetInfoCallArguments()
+func GetInfo(pdf string, options ...CallOption) (map[string]string, error) {
+	p := defaultGetInfoCallArguments()
 
 	for _, option := range options {
-		option(call, nil)
+		option(p, nil)
 	}
 
-	if _, err := os.Stat(pdfPath); errors.Is(err, os.ErrNotExist) {
-		return nil, err
+	if _, err := os.Stat(pdf); errors.Is(err, os.ErrNotExist) {
+		return nil, errors.WithStack(err)
 	}
 
 	command := []string{
-		getCommandPath("pdfinfo", call.popplerPath),
-		pdfPath,
+		getCommandPath("pdfinfo", p.popplerPath),
+		pdf,
 	}
 
-	if call.userPw != "" {
-		command = append(command, "-upw", call.userPw)
+	if p.userPw != "" {
+		command = append(command, "-upw", p.userPw)
 	}
 
-	if call.ownerPw != "" {
-		command = append(command, "-opw", call.ownerPw)
+	if p.ownerPw != "" {
+		command = append(command, "-opw", p.ownerPw)
 	}
 
-	if call.rawDates {
+	if p.rawDates {
 		command = append(command, "-rawdates")
 	}
 
-	var ctx context.Context
-	var cancle context.CancelFunc
-	if ctx = call.ctx; ctx == nil {
-		ctx, cancle = context.WithTimeout(context.Background(), call.timeout)
-		defer cancle()
+	if p.timeout > 0 {
+		p.ctx, p.cancel = context.WithTimeout(p.ctx, p.timeout)
+		defer p.cancel()
 	}
 
-	cmd := buildCmd(ctx, call.popplerPath, command)
-	if call.verbose {
+	cmd := buildCmd(p.ctx, p.popplerPath, command)
+	if p.verbose {
 		fmt.Println("Call using ", cmd.String())
 	}
 
@@ -67,6 +70,9 @@ func GetInfo(pdfPath string, options ...CallOption) (map[string]string, error) {
 
 	for scanner.Scan() {
 		if strings.HasPrefix(scanner.Text(), "I/O Error:") {
+			if p.verbose {
+				fmt.Println("Error:", scanner.Text())
+			}
 			continue
 		}
 		pairs := strings.Split(scanner.Text(), ":")

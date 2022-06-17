@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,7 +28,7 @@ func mustContainsNFilesInDir(t *testing.T, kase, dir string, expect int) {
 		t.Fatalf("%+v", err)
 	}
 	if got := len(files); got != expect {
-		t.Fatalf("%s: expected %d files, got %d", kase, expect, got)
+		t.Fatalf("%s: expected %d files in %s, got %d", kase, expect, dir, got)
 	}
 }
 
@@ -40,9 +42,11 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 	commonOptions := []CallOption{WithStrict(), WithVerbose()}
 	subtests := []subtest{
 		{
-			title:   "TestSingleWorkerConversion",
-			options: []CallOption{},
-			check:   func(t *testing.T, task *Task) {},
+			title: "TestSingleWorkerConversion",
+			options: []CallOption{
+				WithStrict(),
+			},
+			check: func(t *testing.T, task *Task) {},
 		},
 		{
 			title: "TestMultipleWorkerConversion",
@@ -55,7 +59,6 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 			title: "TestMultipleWorkerConversionWithProgress",
 			options: []CallOption{
 				WithWorkerCount(4),
-				WithProgress(),
 			},
 			check: func(t *testing.T, task *Task) {},
 		},
@@ -69,7 +72,8 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 				options := append(commonOptions, sub.options...)
 				options = append(options, WithOutputFolder(dir))
 
-				task, err := Convert(fmt.Sprintf("%s%s", folder, pdf), options...)
+				file := fmt.Sprintf("%s%s", folder, pdf)
+				task, err := Convert(file, options...)
 				if err != nil {
 					t.Fatalf("%+v", err)
 				}
@@ -78,27 +82,13 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 					t.Fatalf("%+v", task.Errors())
 				}
 
-				mustContainsNFilesInDir(t, pdf, dir, pageCount)
+				outputFolder := filepath.Dir(filepath.Join(dir, file))
+				mustContainsNFilesInDir(t, pdf, outputFolder, pageCount)
 
 				// further customize check
-				sub.check(t, task)
+				sub.check(t, &task.Task)
 			}
 		})
-	}
-}
-
-func TestPDFConversionsWithSingleWorker(t *testing.T) {
-	for pdf, pageCount := range pdfs1 {
-		dir := t.TempDir()
-		task, err := Convert(fmt.Sprintf("%s%s", folder, pdf),
-			WithOutputFolder(dir),
-		)
-		if err != nil {
-			t.Fatalf("%+v", err)
-		}
-
-		task.Wait()
-		mustContainsNFilesInDir(t, pdf, dir, pageCount)
 	}
 }
 
@@ -149,8 +139,6 @@ func TestCorruptedFileConversion(t *testing.T) {
 func TestPerPageTimeout(t *testing.T) {
 	task, err := Convert(fmt.Sprintf("%s%s", folder, "test_241.pdf"),
 		WithOutputFolder(t.TempDir()),
-		WithProgress(),
-		WithPerPageTimeout(time.Millisecond*10),
 	)
 
 	assert.NoError(t, err, "conversion task initialization should not failed")
@@ -227,4 +215,70 @@ func TestStrictMode(t *testing.T) {
 			task.Wait()
 		})
 	}
+}
+
+func TestGetTotalPages(t *testing.T) {
+	total := 0
+	wg := &sync.WaitGroup{}
+
+	woker := func(id int, jobs <-chan string, pages chan<- int) {
+		defer wg.Done()
+		for file := range jobs {
+			page, err := GetPagesCount(file, WithTimeout(time.Second*5))
+			assert.NoErrorf(t, err, "GetPagesCount for file %s failed", file)
+			pages <- page
+		}
+	}
+
+	dir := "/Users/deathking/Code/dataset/test_pdf"
+	infos, err := ioutil.ReadDir(dir)
+	assert.NoError(t, err)
+
+	jobs := make(chan string, len(infos))
+	pages := make(chan int, len(infos))
+
+	go func() {
+		defer close(jobs)
+		for _, file := range infos {
+			if !file.IsDir() {
+				jobs <- filepath.Join(dir, file.Name())
+			}
+		}
+	}()
+
+	const numJobs = 4
+	for i := 0; i < numJobs; i++ {
+		wg.Add(1)
+		go woker(i, jobs, pages)
+	}
+
+	go func() {
+		wg.Wait()
+		close(pages)
+	}()
+
+	for p := range pages {
+		total += p
+	}
+
+	t.Logf("total pages: %d", total)
+}
+
+func TestConvertFiles(t *testing.T) {
+	dir := "/Users/deathking/Code/dataset/test_pdf"
+
+	task, err := ConvertFiles(dir,
+		WithFormat("jpeg"),
+		WithOutputFileFn(func(pdf string, index, first, last int32) string {
+			return filepath.Base(pdf)
+		}),
+		WithWorkerCount(4),
+		WithOutputFolder("/Users/deathking/Code/dataset/output"))
+
+	assert.NoError(t, err, "conversion task initialization should not failed")
+
+	// bar := Bar(task)
+	// bar.Wait()
+
+	task.Wait()
 }
