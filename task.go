@@ -1,4 +1,4 @@
-package gopdf2image
+package pico
 
 import (
 	"sync"
@@ -13,8 +13,8 @@ type Task struct {
 	// wg waits for all convertor completed
 	wg *sync.WaitGroup
 
-	// convertors are used to convert PDF to images
-	convertors []*convertor
+	// Convertors are used to convert PDF to images
+	Convertors []*Convertor
 
 	// params is the final computed arguments used to invoke the conversion call
 	params *Parameters
@@ -34,8 +34,8 @@ type SingleTask struct {
 	Task
 }
 
-// BatchTask deals with multiple document conversion where each convertor converts
-// a whole document.
+// BatchTask deals with multiple documents conversion where each convertor converts
+// single document.
 type BatchTask struct {
 	Task
 }
@@ -76,7 +76,7 @@ func (t *Task) WaitAndCollect() (entries [][]string) {
 
 func (t *Task) Errors() (errs []*ConversionError) {
 	<-t.done
-	for _, c := range t.convertors {
+	for _, c := range t.Convertors {
 		errs = append(errs, c.Errors()...)
 	}
 	return
@@ -89,8 +89,8 @@ func (t *Task) Error() error {
 	return nil
 }
 
-func (t *Task) buildConvertor(index int32) *convertor {
-	return &convertor{
+func (t *Task) buildConvertor(index int32) *Convertor {
+	return &Convertor{
 		t:    t,
 		id:   index,
 		done: make(chan interface{}),
@@ -123,7 +123,7 @@ func (t *SingleTask) Start(pdf string) error {
 		c := t.buildConvertor(i)
 
 		t.wg.Add(1)
-		t.convertors = append(t.convertors, c)
+		t.Convertors = append(t.Convertors, c)
 
 		if err := c.start(pdf); err != nil {
 			t.params.cancel()
@@ -141,7 +141,7 @@ func (t *BatchTask) Start(provider PdfProvider) error {
 		c := t.buildConvertor(i)
 
 		t.wg.Add(1)
-		t.convertors = append(t.convertors, c)
+		t.Convertors = append(t.Convertors, c)
 		go c.startAsWorker(provider)
 	}
 

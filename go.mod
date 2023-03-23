@@ -1,4 +1,4 @@
-module github.com/DeathKing/go-pdf2image
+module github.com/DeathKing/pico
 
 go 1.14
 

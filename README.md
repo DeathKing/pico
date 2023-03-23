@@ -1,4 +1,3 @@
-# Go-pdf2image - convert PDF to images with progress
 # pico - convert PDF to images with progress
 
 A Go implementation for [@Belval](https://github.com/Belval)'s Python [pdf2image](https://github.com/Belval/pdf2image) but with progress support.
@@ -24,7 +23,7 @@ Most distros ship with `pdftoppm` and `pdftocairo`. If they are not installed, r
 ## Usage
 
 ```go
-import p2i "github.com/DeathKing/go-pdf2image"
+import p2i "github.com/DeathKing/pico"
 
 func main() {
 
@@ -55,7 +54,6 @@ func main() {
         p2i.WithFormat("jpg"),
         p2i.WithDPI(72),
         p2i.WithPageRange(22, 42),             // Convert from Page 22 to Page 42 (included)
-        p2i.WithProgress(),                    // We'd like to know the progress
         p2i.WithWorkerCount(3)                 // Using 3 worker/process to convert
         p2i.WithTimeout(10 * time.Second)      // Must finished within 10 seconds
     )

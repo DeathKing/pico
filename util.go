@@ -1,4 +1,4 @@
-package gopdf2image
+package pico
 
 import (
 	"context"

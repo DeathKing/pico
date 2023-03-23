@@ -1,4 +1,4 @@
-package gopdf2image
+package pico
 
 import (
 	"github.com/pkg/errors"
@@ -72,19 +72,23 @@ func ConvertFiles(files interface{}, options ...CallOption) (*BatchTask, error) 
 
 	provider := FromInterface(files)
 
-	// perfer using 4 worker
-	if p.workerCount <= 0 {
-		switch {
-		case provider.Count() > 50:
-			p.workerCount = 3
-		case provider.Count() > 20:
-			p.workerCount = 2
-		default:
-			p.workerCount = 1
-		}
-	}
+	// automatically determine worker count, perfer using 4 worker
+	p.workerCount = determineWorkerCount(p.workerCount, int32(provider.Count()))
 
 	task := newBatchTask(p)
 
 	return task, task.Start(provider)
+}
+
+func determineWorkerCount(set, need int32) int32 {
+	switch {
+	case set > 0:
+		return set
+	case need >= 50:
+		return 3
+	case need >= 20:
+		return 2
+	default:
+		return 1
+	}
 }

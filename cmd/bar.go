@@ -1,14 +1,49 @@
-package gopdf2image
+package main
 
 import (
 	"fmt"
 	"math/rand"
-	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vbauerster/mpb/v7"
 	"github.com/vbauerster/mpb/v7/decor"
+	. "github.com/vbauerster/mpb/v7/decor"
+
+	. "github.com/DeathKing/pico"
 )
+
+// ws means window size
+func Marquee(textGetter func() string, ws uint, wcc ...WC) Decorator {
+	var count uint
+	buf := make([]byte, ws+1)
+	f := func(s Statistics) string {
+		text := textGetter()
+		bytes := []byte(text)
+		start := count % uint(len([]rune(text)))
+
+		var i uint = 0
+		var ri uint = 0
+		for pos, r := range text {
+			if ri < start {
+				ri++
+				continue
+			}
+			l := uint(utf8.RuneLen(r))
+			if i+l > ws {
+				break
+			}
+			copy(buf[i:i+l], bytes[pos:uint(pos)+l])
+			i += l
+		}
+		for ; i <= ws; i++ {
+			buf[i] = ' '
+		}
+		count++
+		return string(buf)
+	}
+	return Any(f, wcc...)
+}
 
 func Bar(task interface{}) *mpb.Progress {
 	switch t := task.(type) {
@@ -25,17 +60,21 @@ func Bar(task interface{}) *mpb.Progress {
 func batchTaskBar(t *BatchTask) *mpb.Progress {
 	p := mpb.New()
 
-	for id, convertor := range t.convertors {
+	for id, convertor := range t.Convertors {
 		worker := fmt.Sprintf("Worker#%02d:", id)
 
-		status := decor.Name("converting", decor.WCSyncSpaceR)
+		// status := decor.Name("converting", decor.WCSyncSpaceR)
+		c := convertor
+		status := Marquee(func() string {
+			return c.Filename()
+		}, 30)
 		status = decor.OnComplete(status, "\x1b[32mdone!\x1b[0m")
 		status = decor.OnAbort(status, "\x1b[31maborted\x1b[0m")
 
 		// wc := status.GetConf()
 		// wc.FormatMsg(convertor.pdf)
 
-		bar := p.AddBar(int64(atomic.LoadInt32(&convertor.total)),
+		bar := p.AddBar(int64(convertor.Total()),
 			mpb.PrependDecorators(
 				decor.Name(worker, decor.WC{W: len(worker) + 1, C: decor.DidentRight}),
 				status,
@@ -50,16 +89,17 @@ func batchTaskBar(t *BatchTask) *mpb.Progress {
 	return p
 }
 
-func completeWorker(bar *mpb.Bar, c *convertor, wc decor.WC) {
+func completeWorker(bar *mpb.Bar, c *Convertor, wc decor.WC) {
 	// max := 50 * time.Millisecond
 
 	for !bar.Completed() {
-		if c.completed() {
-			bar.SetTotal(int64(c.total), true)
+		converted, total := c.Progress()
+		if c.Completed() {
+			bar.SetTotal(int64(total), true)
 		} else {
 			// wc.FormatMsg(c.pdf)
-			bar.SetTotal(int64(c.total), false)
-			bar.SetCurrent(int64(c.converted))
+			bar.SetTotal(int64(total), false)
+			bar.SetCurrent(int64(converted))
 		}
 		// time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
 		time.Sleep(50 * time.Millisecond)
@@ -70,14 +110,18 @@ func completeWorker(bar *mpb.Bar, c *convertor, wc decor.WC) {
 func singleTaskBar(t *SingleTask) *mpb.Progress {
 	p := mpb.New()
 
-	for id, convertor := range t.convertors {
+	for id, convertor := range t.Convertors {
 		worker := fmt.Sprintf("Worker#%02d:", id)
 
-		status := decor.Name("converting", decor.WCSyncSpaceR)
+		// status := decor.Name("converting", decor.WCSyncSpaceR)
+		c := convertor
+		status := Marquee(func() string {
+			return c.Filename()
+		}, 30)
 		status = decor.OnComplete(status, "\x1b[32mdone!\x1b[0m")
 		status = decor.OnAbort(status, "\x1b[31maborted\x1b[0m")
 
-		bar := p.AddBar(int64(convertor.total),
+		bar := p.AddBar(int64(convertor.Total()),
 			mpb.PrependDecorators(
 				decor.Name(worker, decor.WC{W: len(worker) + 1, C: decor.DidentRight}),
 				status,
@@ -92,16 +136,17 @@ func singleTaskBar(t *SingleTask) *mpb.Progress {
 	return p
 }
 
-func complete(bar *mpb.Bar, c *convertor) {
+func complete(bar *mpb.Bar, c *Convertor) {
 	max := 500 * time.Millisecond
 
 	for !bar.Completed() {
 		time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
 		// if c.Error != nil {
-		if c.abroted {
+		if c.Abroted {
 			bar.Abort(false)
 		} else {
-			bar.SetCurrent(int64(c.converted))
+			conveted, _ := c.Progress()
+			bar.SetCurrent(int64(conveted))
 		}
 	}
 }

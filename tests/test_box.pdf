@@ -1,0 +1,95 @@
+%PDF-1.6
+1 0 obj
+<< /Creator (Felix Buenemann)
+/Producer (VIM 7.4)
+>>
+endobj
+2 0 obj
+<< /Kids [5 0 R]
+/Type /Pages
+/Count 1
+>>
+endobj
+3 0 obj
+<< /Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+4 0 obj
+<< /Length 541
+>>
+stream
+% paint red hexagon
+1 0 0 rg
+136 286 m
+236 336 l
+336 286 l
+336 186 l
+236 136 l
+136 186 l
+f
+% add strokes to make it look like an isometric box
+4w
+1 0.3 0.3 RG
+136 286 m
+236 236 l
+336 286 l
+236 236 m
+236 136 l
+S
+% blue box in left top corner, reaching into bleed
+0 0 1 rg
+10 582 200 200 re
+f
+0 0 0 RG
+% left bottom crop marks
+0 20 m
+10 20 l
+20 0 m
+20 10 l
+% right bottom crop marks
+602 20 m
+612 20 l
+592 0 m
+592 10 l
+% left top crop marks
+0 772 m
+10 772 l
+20 782 m
+20 792 l
+% right top crop marks
+602 772 m
+612 772 l
+592 782 m
+592 1792 l
+S
+Q
+endstream
+endobj
+5 0 obj
+<< /Contents 4 0 R
+/Type /Page
+/MediaBox [0 0 612 792]   % letter format 8.5x11" at 72 dpi
+/BleedBox [10 10 602 782] % bleed box offset 10 pts from each edge
+/TrimBox [20 20 592 772]  % trim box offset 20 pts from each edge
+/CropBox [20 20 592 772]  % crop box for viewer matches trim box
+/ArtBox [136 136 336 336] % art box around the red isometric box
+/Parent 2 0 R
+>>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000077 00000 n 
+0000000134 00000 n 
+0000000183 00000 n 
+0000000774 00000 n 
+trailer
+<< /Info 1 0 R
+/Size 6
+/Root 3 0 R
+>>
+startxref
+1160
+%%EOF

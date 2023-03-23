@@ -1,70 +1,17 @@
-package gopdf2image
+package pico
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 )
 
-type progress struct {
-	pdf string
-
-	current   int32
-	total     int32
-	converted int32
-}
-
-func (p *progress) Incr(delta int32) {
-	atomic.AddInt32(&p.converted, delta)
-}
-
-func (p *progress) PushTotal(delta int32) {
-	atomic.AddInt32(&p.total, delta)
-}
-
-func (p *progress) Progress() (int32, int32) {
-	total := atomic.LoadInt32(&p.total)
-	converted := atomic.LoadInt32(&p.converted)
-	return converted, total
-}
-
-func (p *progress) P() chan []int32 {
-	ch := make(chan []int32, 1)
-	ch <- []int32{p.total, p.converted}
-	fmt.Printf("progress: %d %d\n", p.total, p.converted)
-	return ch
-}
-
-func (p *progress) SetCurrent(current int32) {
-	atomic.StoreInt32(&p.current, current)
-}
-
-func (p *progress) Current() int32 {
-	return atomic.LoadInt32(&p.current)
-}
-
-func (p *progress) setInit(pdf string, first, last int32) {
-	p.pdf = pdf
-
-	atomic.StoreInt32(&p.current, first)
-	atomic.StoreInt32(&p.total, last-first+1)
-	atomic.StoreInt32(&p.converted, 0)
-}
-
-func (p *progress) setWaiting() {
-	p.pdf = "<waiting>"
-
-	atomic.StoreInt32(&p.current, -1)
-}
-
-type convertor struct {
+type Convertor struct {
 	progress
 
 	t   *Task
@@ -76,12 +23,12 @@ type convertor struct {
 
 	done chan interface{}
 
-	abroted bool
+	Abroted bool
 }
 
 // spwanCmdForPipe spwans an `exec.Cmd` for convererting the pdf from `first` to `last`,
 //
-func (c *convertor) spwanCmdForPipe(pdf string, first, last int32) (io.ReadCloser, error) {
+func (c *Convertor) spwanCmdForPipe(pdf string, first, last int32) (io.ReadCloser, error) {
 	p := c.t.params
 	command := p.buildCommand(pdf, c.id, first, last)
 	c.cmd = buildCmd(p.ctx, p.popplerPath, command)
@@ -99,11 +46,11 @@ func (c *convertor) spwanCmdForPipe(pdf string, first, last int32) (io.ReadClose
 	return pipe, nil
 }
 
-func (c *convertor) Errors() []*ConversionError {
+func (c *Convertor) Errors() []*ConversionError {
 	return c.converrs
 }
 
-func (c *convertor) Error() (err error) {
+func (c *Convertor) Error() (err error) {
 	if len(c.converrs) > 0 {
 		err = c.converrs[0].err
 	}
@@ -111,7 +58,7 @@ func (c *convertor) Error() (err error) {
 }
 
 // receiveError 可能存在跨pdf error 的情况么？
-func (c *convertor) receiveError(err error, page int32) bool {
+func (c *Convertor) receiveError(err error, page int32) bool {
 	if err == nil {
 		return true
 	}
@@ -123,6 +70,7 @@ func (c *convertor) receiveError(err error, page int32) bool {
 		err:      err,
 	})
 
+	// if we're in `strict` mode, break further execution by return false
 	return !c.t.params.strict
 }
 
@@ -130,7 +78,7 @@ func (c *convertor) receiveError(err error, page int32) bool {
 // function is usually used to
 //   1. update the progress
 //   2. send the entry to the task
-func (c *convertor) receiveEntry(entry []string) {
+func (c *Convertor) receiveEntry(entry []string) {
 	current, _ := strconv.Atoi(entry[0])
 
 	c.Incr(1)
@@ -140,7 +88,7 @@ func (c *convertor) receiveEntry(entry []string) {
 
 var _entryRE = regexp.MustCompile(`(\d+) (\d+) (.+)`)
 
-func (c *convertor) parseProgress(pipe io.ReadCloser, ch chan<- []string, current int32) {
+func (c *Convertor) parseProgress(pipe io.ReadCloser, ch chan<- []string, current int32) {
 	scanner := bufio.NewScanner(pipe)
 	defer close(ch)
 
@@ -175,7 +123,7 @@ func (c *convertor) parseProgress(pipe io.ReadCloser, ch chan<- []string, curren
 // start starts the convertor
 //
 // errors may occur during spwan Cmd and pipe.
-func (c *convertor) start(pdf string) error {
+func (c *Convertor) start(pdf string) error {
 	p := c.t.params
 	first, last, _ := p.pageRangeForPart(pdf, c.id)
 
@@ -209,7 +157,7 @@ func (c *convertor) start(pdf string) error {
 	return nil
 }
 
-func (c *convertor) startAsWorker(provider PdfProvider) {
+func (c *Convertor) startAsWorker(provider PdfProvider) {
 	var pdf string
 	var pipe io.ReadCloser
 	var more bool
@@ -265,12 +213,13 @@ func (c *convertor) startAsWorker(provider PdfProvider) {
 	}
 }
 
-func (c *convertor) onComplete() {
+func (c *Convertor) onComplete() {
 	close(c.done)
 	c.t.wg.Done()
 }
 
-func (c *convertor) completed() bool {
+// Completed reports whether the convertor is in completed state
+func (c *Convertor) Completed() bool {
 	select {
 	case <-c.done:
 		return true

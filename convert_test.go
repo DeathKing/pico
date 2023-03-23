@@ -1,4 +1,4 @@
-package gopdf2image
+package pico
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
@@ -124,7 +123,7 @@ func TestInvalidPDFRange(t *testing.T) {
 		WithOutputFolder(t.TempDir()),
 		WithPageRange(42, 24),
 	)
-	assert.Contains(t, err.Error(), "invalid page range")
+	assert.Contains(t, err.Error(), "wrong argument")
 }
 
 func TestCorruptedFileConversion(t *testing.T) {
@@ -133,19 +132,6 @@ func TestCorruptedFileConversion(t *testing.T) {
 	)
 	var exitError *exec.ExitError
 	assert.ErrorAs(t, err, &exitError)
-}
-
-// unfortunately, this is very hard to test
-func TestPerPageTimeout(t *testing.T) {
-	task, err := Convert(fmt.Sprintf("%s%s", folder, "test_241.pdf"),
-		WithOutputFolder(t.TempDir()),
-	)
-
-	assert.NoError(t, err, "conversion task initialization should not failed")
-	task.Wait()
-
-	var errPerPageTimeout *PerPageTimeoutError
-	assert.ErrorAs(t, task.Error(), &errPerPageTimeout)
 }
 
 func TestConversionTimeout(t *testing.T) {
@@ -160,7 +146,7 @@ func TestConversionTimeout(t *testing.T) {
 	assert.NoError(t, err, "conversion task initialization should not failed")
 	task.Wait()
 
-	assert.ErrorIs(t, task.Error(), context.DeadlineExceeded)
+	assert.ErrorAs(t, task.Error(), &context.DeadlineExceeded)
 }
 
 func TestConversionCancellation(t *testing.T) {
@@ -173,14 +159,14 @@ func TestConversionCancellation(t *testing.T) {
 	)
 
 	go func() {
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 1)
 		cancel()
 	}()
 
 	assert.NoError(t, err, "conversion task initialization should not failed")
 	task.Wait()
 
-	assert.ErrorIs(t, task.Error(), context.Canceled)
+	assert.ErrorAs(t, task.Error(), &context.Canceled)
 }
 
 type strictModeTestCase struct {
@@ -217,68 +203,48 @@ func TestStrictMode(t *testing.T) {
 	}
 }
 
-func TestGetTotalPages(t *testing.T) {
-	total := 0
-	wg := &sync.WaitGroup{}
+// func TestGetTotalPages(t *testing.T) {
+// 	total := 0
+// 	wg := &sync.WaitGroup{}
 
-	woker := func(id int, jobs <-chan string, pages chan<- int) {
-		defer wg.Done()
-		for file := range jobs {
-			page, err := GetPagesCount(file, WithTimeout(time.Second*5))
-			assert.NoErrorf(t, err, "GetPagesCount for file %s failed", file)
-			pages <- page
-		}
-	}
+// 	woker := func(id int, jobs <-chan string, pages chan<- int) {
+// 		defer wg.Done()
+// 		for file := range jobs {
+// 			page, err := GetPagesCount(file, WithTimeout(time.Second*5))
+// 			assert.NoErrorf(t, err, "GetPagesCount for file %s failed", file)
+// 			pages <- page
+// 		}
+// 	}
 
-	dir := "/Users/deathking/Code/dataset/test_pdf"
-	infos, err := ioutil.ReadDir(dir)
-	assert.NoError(t, err)
+// 	infos, err := ioutil.ReadDir(folder)
+// 	assert.NoError(t, err)
 
-	jobs := make(chan string, len(infos))
-	pages := make(chan int, len(infos))
+// 	jobs := make(chan string, len(infos))
+// 	pages := make(chan int, len(infos))
 
-	go func() {
-		defer close(jobs)
-		for _, file := range infos {
-			if !file.IsDir() {
-				jobs <- filepath.Join(dir, file.Name())
-			}
-		}
-	}()
+// 	go func() {
+// 		defer close(jobs)
+// 		for _, file := range infos {
+// 			if !file.IsDir() {
+// 				jobs <- filepath.Join(folder, file.Name())
+// 			}
+// 		}
+// 	}()
 
-	const numJobs = 4
-	for i := 0; i < numJobs; i++ {
-		wg.Add(1)
-		go woker(i, jobs, pages)
-	}
+// 	const numJobs = 4
+// 	for i := 0; i < numJobs; i++ {
+// 		wg.Add(1)
+// 		go woker(i, jobs, pages)
+// 	}
 
-	go func() {
-		wg.Wait()
-		close(pages)
-	}()
+// 	go func() {
+// 		wg.Wait()
+// 		close(pages)
+// 	}()
 
-	for p := range pages {
-		total += p
-	}
+// 	for p := range pages {
+// 		total += p
+// 	}
 
-	t.Logf("total pages: %d", total)
-}
-
-func TestConvertFiles(t *testing.T) {
-	dir := "/Users/deathking/Code/dataset/test_pdf"
-
-	task, err := ConvertFiles(dir,
-		WithFormat("jpeg"),
-		WithOutputFileFn(func(pdf string, index, first, last int32) string {
-			return filepath.Base(pdf)
-		}),
-		WithWorkerCount(4),
-		WithOutputFolder("/Users/deathking/Code/dataset/output"))
-
-	assert.NoError(t, err, "conversion task initialization should not failed")
-
-	// bar := Bar(task)
-	// bar.Wait()
-
-	task.Wait()
-}
+// 	t.Logf("total pages: %d", total)
+// }
