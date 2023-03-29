@@ -5,10 +5,7 @@ A Go implementation for [@Belval](https://github.com/Belval)'s Python [pdf2image
 ## Install and dependency
 
 ```
-$ go get github.com/DeathKing/pico
-
-# or the cmd tool
-$ go get github.com/DeathKing/pico/cmd
+$ go get github.com/DeathKing/pico/...
 ```
 
 `poppler` installation manual is copied from [@Belval/pdf2image](https://github.com/Belval/pdf2image#how-to-install).

@@ -8,16 +8,15 @@ import (
 
 	"github.com/vbauerster/mpb/v7"
 	"github.com/vbauerster/mpb/v7/decor"
-	. "github.com/vbauerster/mpb/v7/decor"
 
 	. "github.com/DeathKing/pico"
 )
 
 // ws means window size
-func Marquee(textGetter func() string, ws uint, wcc ...WC) Decorator {
+func Marquee(textGetter func() string, ws uint, wcc ...decor.WC) decor.Decorator {
 	var count uint
 	buf := make([]byte, ws+1)
-	f := func(s Statistics) string {
+	f := func(s decor.Statistics) string {
 		text := textGetter()
 		bytes := []byte(text)
 		start := count % uint(len([]rune(text)))
@@ -42,7 +41,7 @@ func Marquee(textGetter func() string, ws uint, wcc ...WC) Decorator {
 		count++
 		return string(buf)
 	}
-	return Any(f, wcc...)
+	return decor.Any(f, wcc...)
 }
 
 func Bar(task interface{}) *mpb.Progress {
@@ -63,7 +62,6 @@ func batchTaskBar(t *BatchTask) *mpb.Progress {
 	for id, convertor := range t.Convertors {
 		worker := fmt.Sprintf("Worker#%02d:", id)
 
-		// status := decor.Name("converting", decor.WCSyncSpaceR)
 		c := convertor
 		status := Marquee(func() string {
 			return c.Filename()
@@ -90,18 +88,14 @@ func batchTaskBar(t *BatchTask) *mpb.Progress {
 }
 
 func completeWorker(bar *mpb.Bar, c *Convertor, wc decor.WC) {
-	// max := 50 * time.Millisecond
-
 	for !bar.Completed() {
 		converted, total := c.Progress()
 		if c.Completed() {
 			bar.SetTotal(int64(total), true)
 		} else {
-			// wc.FormatMsg(c.pdf)
 			bar.SetTotal(int64(total), false)
 			bar.SetCurrent(int64(converted))
 		}
-		// time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
 		time.Sleep(50 * time.Millisecond)
 	}
 }
@@ -113,7 +107,6 @@ func singleTaskBar(t *SingleTask) *mpb.Progress {
 	for id, convertor := range t.Convertors {
 		worker := fmt.Sprintf("Worker#%02d:", id)
 
-		// status := decor.Name("converting", decor.WCSyncSpaceR)
 		c := convertor
 		status := Marquee(func() string {
 			return c.Filename()
@@ -141,7 +134,6 @@ func complete(bar *mpb.Bar, c *Convertor) {
 
 	for !bar.Completed() {
 		time.Sleep(time.Duration(rand.Intn(10)+1) * max / 10)
-		// if c.Error != nil {
 		if c.Abroted {
 			bar.Abort(false)
 		} else {
