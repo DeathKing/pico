@@ -38,22 +38,22 @@ func Convert(pdf string, options ...CallOption) (*SingleTask, error) {
 	p.pageCount = p.lastPage - p.firstPage + 1
 
 	// workerCount is not set, we could infer for one
-	if p.workerCount <= 0 {
+	if p.job <= 0 {
 		switch {
 		case p.pageCount > 50:
-			p.workerCount = 3
+			p.job = 3
 		case p.pageCount > 20:
-			p.workerCount = 2
+			p.job = 2
 		default:
-			p.workerCount = 1
+			p.job = 1
 		}
 	}
 
-	if p.workerCount > p.pageCount {
-		p.workerCount = p.pageCount
+	if p.job > p.pageCount {
+		p.job = p.pageCount
 	}
 
-	p.minPagePerWorker = p.pageCount / p.workerCount
+	p.minPagesPerWorker = p.pageCount / p.job
 
 	task := newSingleTask(p)
 
@@ -73,7 +73,7 @@ func ConvertFiles(files interface{}, options ...CallOption) (*BatchTask, error) 
 	provider := FromInterface(files)
 
 	// automatically determine worker count, perfer using 4 worker
-	p.workerCount = determineWorkerCount(p.workerCount, int32(provider.Count()))
+	p.job = determineWorkerCount(p.job, int32(provider.Count()))
 
 	task := newBatchTask(p)
 
@@ -84,11 +84,13 @@ func determineWorkerCount(set, need int32) int32 {
 	switch {
 	case set > 0:
 		return set
-	case need >= 50:
-		return 3
 	case need >= 20:
+		return 4
+	case need >= 10:
 		return 2
-	default:
+	case need > 0:
 		return 1
+	default:
+		return 4
 	}
 }

@@ -1,12 +1,9 @@
 package pico
 
 import (
-	"io/fs"
-	"io/ioutil"
+	"fmt"
+	"os"
 	"path/filepath"
-	"strings"
-
-	"github.com/pkg/errors"
 )
 
 const _dirwalkchansize = 100
@@ -50,62 +47,52 @@ func (p *SliceFileProvider) Count() int {
 	return p.len
 }
 
-func FromDir(dir string) PdfProvider {
-	infos, err := ioutil.ReadDir(dir)
-	if err != nil {
-		panic(err)
-	}
-
-	files := []string{}
-	for _, file := range infos {
-		name := strings.ToLower(file.Name())
-		if !file.IsDir() && strings.HasSuffix(name, ".pdf") {
-			files = append(files, filepath.Join(dir, file.Name()))
-		}
-	}
+func FromGlob(pattern string) PdfProvider {
+	files, _ := filepath.Glob(pattern)
 
 	return FromSlice(files)
 }
 
-func FromDirWalk(dir string) PdfProvider {
+func FromChan(ch chan string) PdfProvider {
+	return &ChanProvider{source: ch}
+}
+
+func FromMultiSource(patterns []string) PdfProvider {
+	files := []string{}
+	for _, pattern := range patterns {
+		info, _ := os.Stat(pattern)
+
+		if info.IsDir() {
+			pattern = filepath.Join(pattern, "/*.pdf")
+		}
+
+		batch, _ := filepath.Glob(pattern)
+		files = append(files, batch...)
+	}
+
+	fmt.Printf("%v\n", len(files))
+	return FromSlice(files)
+}
+
+func FromMultiSourceAsync(patterns []string) PdfProvider {
 	ch := make(chan string, _dirwalkchansize)
 	go func() {
 		defer close(ch)
-		filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
-			if err != nil {
-				return errors.Wrapf(err, "filepath.Walk failed: %q", path)
-			}
-			name := strings.ToLower(info.Name())
-			if !info.IsDir() && strings.HasSuffix(name, ".pdf") {
-				ch <- path
-			}
-			return nil
-		})
-	}()
-	return FromChan(ch)
-}
+		for _, pattern := range patterns {
+			info, _ := os.Stat(pattern)
 
-func FromDirAsync(dir string) PdfProvider {
-	infos, err := ioutil.ReadDir(dir)
-	if err != nil {
-		panic(err)
-	}
+			if info.IsDir() {
+				pattern = filepath.Join(pattern, "/*")
+			}
 
-	files := make(chan string, len(infos))
-	go func() {
-		defer close(files)
-		for _, file := range infos {
-			if !file.IsDir() {
-				files <- filepath.Join(dir, file.Name())
+			batch, _ := filepath.Glob(pattern)
+			for _, file := range batch {
+				ch <- file
 			}
 		}
 	}()
 
-	return FromChan(files)
-}
-
-func FromChan(ch chan string) PdfProvider {
-	return &ChanProvider{source: ch}
+	return FromChan(ch)
 }
 
 func FromInterface(i interface{}) PdfProvider {
@@ -113,7 +100,7 @@ func FromInterface(i interface{}) PdfProvider {
 	case PdfProvider:
 		return i
 	case string:
-		return FromDir(i)
+		return FromGlob(i)
 	case []string:
 		return FromSlice(i)
 	case chan string:

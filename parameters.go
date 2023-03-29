@@ -37,10 +37,9 @@ type Parameters struct {
 
 	// These fields are used by Convert Function
 	dpi             int
-	size            int
 	firstPage       int32
 	lastPage        int32
-	workerCount     int32
+	job             int32
 	fmt             string
 	jpegOpt         map[string]string
 	outputFile      string
@@ -56,15 +55,18 @@ type Parameters struct {
 	usePdftocario   bool
 	hideAnnotations bool
 
-	// these are what must be computed
-	baseCommand      []string
-	binary           string
-	pageCount        int32
-	minPagePerWorker int32
+	scaleTo  int
+	scaleToX int
+	scaleToY int
 
-	ctx     context.Context
-	cancel  context.CancelFunc
-	clearFn func()
+	// these are what must be computed
+	baseCommand       []string
+	binary            string
+	pageCount         int32
+	minPagesPerWorker int32
+
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// this field is only used by GetPDFInfo() call
 	rawDates bool
@@ -73,15 +75,15 @@ type Parameters struct {
 // pageRangeForPart calculates the page range needed to be converted for a given file
 // by specific worker during Convert() call.
 func (p *Parameters) pageRangeForPart(pdf string, index int32) (int32, int32, error) {
-	reminder := p.pageCount % p.workerCount
+	reminder := p.pageCount % p.job
 
 	amortization := int32(0)
 	if index < reminder {
 		amortization = 1
 	}
 
-	first := p.firstPage + index*p.minPagePerWorker
-	last := first + reminder + p.minPagePerWorker - 1 + amortization
+	first := p.firstPage + index*p.minPagesPerWorker
+	last := first + reminder + p.minPagesPerWorker - 1 + amortization
 
 	// FIXME: seems redundant
 	if last > p.lastPage {
@@ -197,6 +199,18 @@ func (p *Parameters) apply(options ...CallOption) error {
 			newWrongArgumentError("hideAnnotations is not supported with pdftocairo"))
 	}
 
+	// size related options
+	if p.scaleTo > 0 {
+		command = append(command, "-scale-to", strconv.Itoa(p.scaleTo))
+	} else {
+		if p.scaleToX > 0 {
+			command = append(command, "-scale-to-x", strconv.Itoa(p.scaleToX))
+		}
+		if p.scaleToY > 0 {
+			command = append(command, "-scale-to-y", strconv.Itoa(p.scaleToY))
+		}
+	}
+
 	// ctx
 	if p.timeout > 0 {
 		p.ctx, p.cancel = context.WithTimeout(p.ctx, p.timeout)
@@ -249,12 +263,28 @@ func WithDpi(dpi int) CallOption {
 	}
 }
 
-// WithSize sets the size of the resulting image(s), uses the Pillow (width, height) standard
-// FIXME: not deal with size for now
-func WithSize(size int) CallOption {
+// WithScaleTo sets the size of the resulting images, size=400 will fit the
+// image to a 400x400 box, preserving aspect ratio
+func WithScaleTo(size int) CallOption {
 	return func(p *Parameters, command []string) []string {
-		panic("not implemented yet")
-		p.size = size
+		p.scaleTo = size
+		return command
+	}
+}
+
+// WithSize is the alias of WithScaleTo
+var WithSize = WithScaleTo
+
+func WithScaleToX(size int) CallOption {
+	return func(p *Parameters, command []string) []string {
+		p.scaleToX = size
+		return command
+	}
+}
+
+func WithScaleToY(size int) CallOption {
+	return func(p *Parameters, command []string) []string {
+		p.scaleToY = size
 		return command
 	}
 }
@@ -262,7 +292,9 @@ func WithSize(size int) CallOption {
 // WithFirstPage sets the first page to convert
 func WithFirstPage(firstPage int) CallOption {
 	return func(p *Parameters, command []string) []string {
-		p.firstPage = int32(firstPage)
+		if firstPage >= 0 {
+			p.firstPage = int32(firstPage)
+		}
 		return command
 	}
 }
@@ -270,7 +302,9 @@ func WithFirstPage(firstPage int) CallOption {
 // WithLastPage sets the last page to convert
 func WithLastPage(lastPage int) CallOption {
 	return func(p *Parameters, command []string) []string {
-		p.lastPage = int32(lastPage)
+		if lastPage >= 0 {
+			p.lastPage = int32(lastPage)
+		}
 		return command
 	}
 }
@@ -290,7 +324,7 @@ func WithWorkerCount(workerCount int) CallOption {
 		workerCount = 1
 	}
 	return func(p *Parameters, command []string) []string {
-		p.workerCount = int32(workerCount)
+		p.job = int32(workerCount)
 		return command
 	}
 }
@@ -445,12 +479,12 @@ func WithContext(ctx context.Context) CallOption {
 func defaultConvertCallOption() *Parameters {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Parameters{
-		dpi:         200,
-		fmt:         "ppm",
-		firstPage:   1,
-		lastPage:    -1,
-		workerCount: 1,
-		timeout:     -1,
+		dpi:       200,
+		fmt:       "ppm",
+		firstPage: 1,
+		lastPage:  -1,
+		job:       1,
+		timeout:   -1,
 
 		ctx:    ctx,
 		cancel: cancel,
@@ -461,7 +495,7 @@ func defaultConvertCallOption() *Parameters {
 
 func defaultConvertFilesCallOption() *Parameters {
 	p := defaultConvertCallOption()
-	p.workerCount = 4
+	p.job = 4
 
 	return p
 }

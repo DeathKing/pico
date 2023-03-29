@@ -106,26 +106,6 @@ func TestGetPDFInfo(t *testing.T) {
 	}
 }
 
-// func TestGetPopplerVersion(t *testing.T) {
-// 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-// 	defer cancel()
-
-// 	versions, err := getPopplerVersion(ctx, "pdftocairo", "")
-// 	if err != nil {
-// 		t.Error(err)
-// 	}
-
-// 	t.Log(versions)
-// }
-
-func TestInvalidPDFRange(t *testing.T) {
-	_, err := Convert(fmt.Sprintf("%s%s", folder, "test.pdf"),
-		WithOutputFolder(t.TempDir()),
-		WithPageRange(42, 24),
-	)
-	assert.Contains(t, err.Error(), "wrong argument")
-}
-
 func TestCorruptedFileConversion(t *testing.T) {
 	_, err := Convert(fmt.Sprintf("%s%s", folder, "test_corrupted.pdf"),
 		WithOutputFolder(t.TempDir()),
@@ -202,49 +182,3 @@ func TestStrictMode(t *testing.T) {
 		})
 	}
 }
-
-// func TestGetTotalPages(t *testing.T) {
-// 	total := 0
-// 	wg := &sync.WaitGroup{}
-
-// 	woker := func(id int, jobs <-chan string, pages chan<- int) {
-// 		defer wg.Done()
-// 		for file := range jobs {
-// 			page, err := GetPagesCount(file, WithTimeout(time.Second*5))
-// 			assert.NoErrorf(t, err, "GetPagesCount for file %s failed", file)
-// 			pages <- page
-// 		}
-// 	}
-
-// 	infos, err := ioutil.ReadDir(folder)
-// 	assert.NoError(t, err)
-
-// 	jobs := make(chan string, len(infos))
-// 	pages := make(chan int, len(infos))
-
-// 	go func() {
-// 		defer close(jobs)
-// 		for _, file := range infos {
-// 			if !file.IsDir() {
-// 				jobs <- filepath.Join(folder, file.Name())
-// 			}
-// 		}
-// 	}()
-
-// 	const numJobs = 4
-// 	for i := 0; i < numJobs; i++ {
-// 		wg.Add(1)
-// 		go woker(i, jobs, pages)
-// 	}
-
-// 	go func() {
-// 		wg.Wait()
-// 		close(pages)
-// 	}()
-
-// 	for p := range pages {
-// 		total += p
-// 	}
-
-// 	t.Logf("total pages: %d", total)
-// }

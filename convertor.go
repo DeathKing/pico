@@ -86,6 +86,7 @@ func (c *Convertor) receiveEntry(entry []string) {
 	c.t.Entries <- entry
 }
 
+// current total outputFileName
 var _entryRE = regexp.MustCompile(`(\d+) (\d+) (.+)`)
 
 func (c *Convertor) parseProgress(pipe io.ReadCloser, ch chan<- []string, current int32) {
@@ -109,7 +110,6 @@ func (c *Convertor) parseProgress(pipe io.ReadCloser, ch chan<- []string, curren
 			return
 		}
 
-		// if entry := strings.Split(line, " "); len(entry) == 3 {
 		if entry := _entryRE.FindStringSubmatch(line); len(entry) > 3 {
 			pg, _ := strconv.Atoi(entry[1])
 			current = int32(pg)

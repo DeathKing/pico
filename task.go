@@ -119,7 +119,7 @@ func newBatchTask(p *Parameters) *BatchTask {
 
 // Start initiates the conversion process
 func (t *SingleTask) Start(pdf string) error {
-	for i := int32(0); i < t.params.workerCount; i++ {
+	for i := int32(0); i < t.params.job; i++ {
 		c := t.buildConvertor(i)
 
 		t.wg.Add(1)
@@ -137,7 +137,7 @@ func (t *SingleTask) Start(pdf string) error {
 }
 
 func (t *BatchTask) Start(provider PdfProvider) error {
-	for i := int32(0); i < t.params.workerCount; i++ {
+	for i := int32(0); i < t.params.job; i++ {
 		c := t.buildConvertor(i)
 
 		t.wg.Add(1)
