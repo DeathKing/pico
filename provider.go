@@ -1,7 +1,6 @@
 package pico
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -70,7 +69,6 @@ func FromMultiSource(patterns []string) PdfProvider {
 		files = append(files, batch...)
 	}
 
-	fmt.Printf("%v\n", len(files))
 	return FromSlice(files)
 }
 

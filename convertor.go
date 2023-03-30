@@ -12,7 +12,7 @@ import (
 )
 
 type Convertor struct {
-	progress
+	Progress
 
 	t   *Task
 	id  int32
@@ -23,7 +23,7 @@ type Convertor struct {
 
 	done chan interface{}
 
-	Abroted bool
+	aborted bool
 }
 
 // spwanCmdForPipe spwans an `exec.Cmd` for convererting the pdf from `first` to `last`,
@@ -83,7 +83,7 @@ func (c *Convertor) receiveEntry(entry []string) {
 
 	c.Incr(1)
 	c.SetCurrent(int32(current))
-	c.t.Entries <- entry
+	c.t.Entries <- append(entry, strconv.Itoa(int(c.id)))
 }
 
 // current total outputFileName
@@ -132,7 +132,7 @@ func (c *Convertor) start(pdf string) error {
 		return errors.WithStack(err)
 	}
 
-	c.progress.setInit(pdf, first, last)
+	c.Progress.setInit(pdf, first, last)
 
 	// ch is closed by `parseProgress`
 	ch := make(chan []string, last-first+1)
@@ -144,6 +144,7 @@ func (c *Convertor) start(pdf string) error {
 			select {
 			case <-p.ctx.Done():
 				c.receiveError(errors.WithStack(p.ctx.Err()), -1)
+				c.aborted = true
 				return
 			case entry, more := <-ch:
 				if !more {
@@ -167,12 +168,18 @@ func (c *Convertor) startAsWorker(provider PdfProvider) {
 
 	p := c.t.params
 
+	// set the total number as long as we could get the file count from provider
+	if cnt := provider.Count(); cnt > 0 {
+		c.t.setInit("", 1, int32(cnt))
+	}
+
 	for {
 		if c.cmd == nil {
 			// accuquire a file for conversion
 			select {
 			case <-p.ctx.Done():
 				c.receiveError(errors.WithStack(p.ctx.Err()), -1)
+				c.aborted = true
 				return
 			case pdf, more = <-provider.Source():
 				if !more {
@@ -193,7 +200,10 @@ func (c *Convertor) startAsWorker(provider PdfProvider) {
 
 			// initialize new file conversion progress
 			c.setInit(pdf, first, last)
-			c.t.PushTotal(c.total)
+			if provider.Count() == -1 {
+				c.t.PushTotal(1)
+			}
+
 			ch = make(chan []string, last-first+1)
 			go c.parseProgress(pipe, ch, first)
 		}
@@ -201,11 +211,14 @@ func (c *Convertor) startAsWorker(provider PdfProvider) {
 		select {
 		case <-p.ctx.Done():
 			c.receiveError(errors.WithStack(p.ctx.Err()), c.current)
+			c.aborted = true
 			return
 		case entry, more := <-ch:
+			// no more entry means conversion has finised for that file
 			if !more {
 				c.cmd = nil
 				c.setWaiting()
+				c.t.Incr(1)
 			} else {
 				c.receiveEntry(entry)
 			}
@@ -226,4 +239,8 @@ func (c *Convertor) Completed() bool {
 	default:
 		return false
 	}
+}
+
+func (c *Convertor) Aborted() bool {
+	return false
 }

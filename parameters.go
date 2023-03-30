@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -122,7 +123,8 @@ func (p *Parameters) pageRangeForFile(pdf string, index int32) (int32, int32, er
 func (p *Parameters) buildCommand(pdf string, index, first, last int32) []string {
 	outputFile := p.outputFile
 	if outputFile == "" {
-		outputFile = pdf
+		ext := path.Ext(pdf)
+		outputFile = pdf[:len(pdf)-len(ext)]
 	}
 
 	if p.outputFileFn != nil {
@@ -318,13 +320,13 @@ func WithPageRange(firstPage, lastPage int) CallOption {
 	}
 }
 
-// WithWorkerCount sets the number of threads to use
-func WithWorkerCount(workerCount int) CallOption {
-	if workerCount < 1 {
-		workerCount = 1
+// WithJob sets the number of threads to use
+func WithJob(job int) CallOption {
+	if job < 1 {
+		job = 1
 	}
 	return func(p *Parameters, command []string) []string {
-		p.job = int32(workerCount)
+		p.job = int32(job)
 		return command
 	}
 }

@@ -50,14 +50,14 @@ func TestPDFConversionsInMultipleOptionCombiantion(t *testing.T) {
 		{
 			title: "TestMultipleWorkerConversion",
 			options: []CallOption{
-				WithWorkerCount(4),
+				WithJob(4),
 			},
 			check: func(t *testing.T, task *Task) {},
 		},
 		{
 			title: "TestMultipleWorkerConversionWithProgress",
 			options: []CallOption{
-				WithWorkerCount(4),
+				WithJob(4),
 			},
 			check: func(t *testing.T, task *Task) {},
 		},

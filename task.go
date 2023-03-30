@@ -7,8 +7,8 @@ import (
 )
 
 type Task struct {
-	// progress is the total progress of a task
-	progress
+	// FileProgress is measured by file counts
+	Progress
 
 	// wg waits for all convertor completed
 	wg *sync.WaitGroup
@@ -20,7 +20,7 @@ type Task struct {
 	params *Parameters
 
 	// Entries is the channel of conversion progress entry
-	// the format will be ["currentPage" "lastPage" "filename"]
+	// the format will be ["currentPage" "lastPage" "filename" "workerId"]
 	Entries chan []string
 
 	// done is the channel that, when it is closed, all the task is completed
@@ -54,6 +54,10 @@ func (t *Task) Completed() bool {
 	default:
 		return false
 	}
+}
+
+func (t *Task) Aborted() bool {
+	return false
 }
 
 // Wait hijacks the EntryChan and wait for all the workers finish
