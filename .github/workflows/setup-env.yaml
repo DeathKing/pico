@@ -6,7 +6,6 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
           go-version: 1.14
