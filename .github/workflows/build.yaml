@@ -25,7 +25,6 @@ jobs:
       - run: mkdir _build
       - name: Build
         run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -v -o _build/pdf2image-${{ matrix.os }}-${{ matrix.arch }} ./cmd/pdf2image
-        run: go build -v ./...
       - name: Upload binaries
         uses: actions/upload-artifact@v2
         with:
