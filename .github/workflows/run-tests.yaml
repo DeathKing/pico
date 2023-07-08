@@ -3,7 +3,7 @@ name: Run Tests
 on: [push]
 
 jobs:
-  uses: ./.github/workflows/setup-env.yaml
   setup:
     steps:
+      - uses: ./.github/workflows/setup-env.yaml
       - run: go test
