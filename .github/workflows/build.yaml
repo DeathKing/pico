@@ -39,7 +39,7 @@ jobs:
           name: pdf2image-mac-${{ matrix.arch }}
           path: _build/pdf2image-mac-${{ matrix.arch }}
       - name: Upload Windows binary
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: pdf2image-windows-${{ matrix.arch }}.exe
           path: _build/pdf2image-windows-${{ matrix.arch }}.exe
