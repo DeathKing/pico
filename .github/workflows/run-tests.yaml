@@ -1,0 +1,7 @@
+name: Run Tests
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - run: go test

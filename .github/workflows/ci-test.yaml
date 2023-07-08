@@ -1,0 +1,9 @@
+name: Test
+
+on: [push]
+
+jobs:
+  call-setup-env:
+    uses: ./.github/workflows/setup-env.yaml
+  call-run-tests:
+    uses: ./.github/workflows/run-tests.yaml
