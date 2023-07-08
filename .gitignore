@@ -2,7 +2,6 @@
 
 # Built binary
 cmd/pdf2image/pdf2image
-meaningless-change
 
 # Binaries for programs and plugins
 *.exe
