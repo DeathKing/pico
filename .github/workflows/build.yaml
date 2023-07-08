@@ -28,8 +28,18 @@ jobs:
         run: CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.arch }} go build -v -o _build/pdf2image-mac-${{ matrix.arch }} ./cmd/pdf2image
       - name: Build Windows
         run: CGO_ENABLED=0 GOOS=windows GOARCH=${{ matrix.arch }} go build -v -o _build/pdf2image-windows-${{ matrix.arch }}.exe ./cmd/pdf2image
-      - name: Upload binaries
+      - name: Upload Linux binary
         uses: actions/upload-artifact@v2
         with:
-          name: binary
-          path: binary
+          name: pdf2image-linux-${{ matrix.arch }}
+          path: _build/pdf2image-linux-${{ matrix.arch }}
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v2
+        with:
+          name: pdf2image-mac-${{ matrix.arch }}
+          path: _build/pdf2image-mac-${{ matrix.arch }}
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v2
+        with:
+          name: pdf2image-windows-${{ matrix.arch }}.exe
+          path: _build/pdf2image-windows-${{ matrix.arch }}.exe
