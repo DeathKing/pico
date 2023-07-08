@@ -4,6 +4,7 @@ on: [push]
 
 jobs:
   setup:
+    runs-on: ubuntu-latest
     steps:
       - uses: ./.github/workflows/setup-env.yaml
       - run: go test
