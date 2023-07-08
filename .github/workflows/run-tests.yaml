@@ -1,9 +1,10 @@
 name: Run Tests
 
-on: [workflow_call]
+on: [push]
 
 jobs:
-  setup:
+  run-tests:
     runs-on: ubuntu-latest
     steps:
+      - uses: ./.github/workflows/setup-env.yaml
       - run: go test -v
