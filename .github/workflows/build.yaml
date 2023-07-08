@@ -11,6 +11,10 @@ jobs:
   build:
     needs: run-tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [windows, linux, darwin]
+        arch: [amd64, arm64]
     steps:
       - run: sudo apt install poppler-utils
       - uses: actions/checkout@v3
@@ -18,7 +22,9 @@ jobs:
         with:
           go-version: '1.20'
       - run: go get .
+      - run: mkdir _build
       - name: Build
+        run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -v -o _build/pdf2image-${{ matrix.os }}-${{ matrix.arch }} ./cmd/pdf2image
         run: go build -v ./...
       - name: Upload binaries
         uses: actions/upload-artifact@v2
