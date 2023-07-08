@@ -6,4 +6,4 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     steps:
-      - run: go test
+      - run: go test -v
