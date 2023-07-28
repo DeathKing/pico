@@ -1,5 +1,8 @@
 .DS_store
 
+# Built binary
+cmd/pdf2image/pdf2image
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
